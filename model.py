@@ -1,181 +1,115 @@
 import os
-import sys
-
-# 必须在导入任何库之前设置
-os.environ['TORCH_FORCE_WEIGHTS_ONLY_LOAD'] = '0'
-os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
-
-print("=" * 50)
-print("🚀 开始初始化 YOLO ML Backend")
-print("=" * 50)
-
-# 导入 torch 并配置
-import torch
-print(f"PyTorch 版本: {torch.__version__}")
-
-# 修改 torch.load 的默认行为
-original_load = torch.load
-def safe_load(*args, **kwargs):
-    kwargs['weights_only'] = False
-    return original_load(*args, **kwargs)
-torch.load = safe_load
-print("✅ 已禁用 PyTorch weights_only 检查")
-
-from label_studio_ml.model import LabelStudioMLBase
-from ultralytics import YOLO
+import io
 import requests
 from PIL import Image
-import io
-from typing import List, Dict
+from label_studio_ml.model import LabelStudioMLBase
+from label_studio_ml.response import ModelResponse
+from ultralytics import YOLO
 
-print(f"Ultralytics 版本: {YOLO.__module__}")
-print(f"当前工作目录: {os.getcwd()}")
-
-# 检查模型文件
-if os.path.exists('best.pt'):
-    size_mb = os.path.getsize('best.pt') / (1024 * 1024)
-    print(f"✅ best.pt 存在，大小: {size_mb:.2f} MB")
-else:
-    print("❌ best.pt 不存在！")
-    raise FileNotFoundError("模型文件 best.pt 未找到")
 
 class YOLOv8LabelStudioAdapter(LabelStudioMLBase):
-    """YOLOv8模型与Label Studio的对接适配器"""
-    
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+        super().__init__(** kwargs)
         print("\n🔧 开始加载 YOLOv8 模型...")
-         # 添加 Label Studio 基础地址（关键！根据实际部署地址修改）
-        self.LABEL_STUDIO_BASE_URL = "https://label-studio-latest-96wd.onrender.com/"  # 例如：云平台分配的域名/IP+端口
-        
+
+        # -------------------------- 配置参数（需根据实际情况修改） --------------------------
+        # Label Studio 基础地址（例如：https://your-label-studio.render.com）
+        self.LABEL_STUDIO_BASE_URL = "https://label-studio-latest-96wd.onrender.com"
+        # YOLO模型路径（默认加载当前目录的best.pt，可替换为其他模型）
+        self.MODEL_PATH = "best.pt"
+        # 置信度阈值（过滤低置信度预测，0-1之间）
+        self.CONF_THRESHOLD = 0.3
+        # ---------------------------------------------------------------------------------
+
         try:
-            # 强制加载模型
-            self.model = YOLO('best.pt', task='detect')
-            print("✅ 模型加载成功！")
-            
-            # 获取模型信息
-            if hasattr(self.model, 'names'):
-                print(f"   📋 模型类别数: {len(self.model.names)}")
-                print(f"   📋 模型类别: {self.model.names}")
-            
+            # 加载YOLO模型
+            self.model = YOLO(self.MODEL_PATH, task='detect')
+            # 获取模型类别信息
+            self.classes = self.model.names
+            self.class_names = ['qiwu', 'xuhao', 'tuzhu', 'muzang', 'zhengti']
+            print(f"✅ 模型加载成功！")
+            print(f"   📋 模型类别数: {len(self.classes)}")
+            print(f"   📋 模型类别: {self.classes}")
+            print(f"🎯 使用类别: {self.class_names}")
+            print(f"🎯 置信度阈值: {self.CONF_THRESHOLD}")
+            print("==================================================")
         except Exception as e:
-            print(f"❌ 模型加载失败: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
-        
-        # 类别列表（与训练时一致）
-        self.classes = ['qiwu', 'xuhao', 'tuzhu', 'muzang', 'zhengti']
-        self.conf_threshold = 0.3
-        
-        print(f"🎯 使用类别: {self.classes}")
-        print(f"🎯 置信度阈值: {self.conf_threshold}")
-        print("=" * 50)
+            print(f"❌ 模型加载失败: {str(e)}")
+            raise  # 中断启动，确保模型加载成功
 
-    def predict(self, tasks: List[Dict], **kwargs) -> List[Dict]:
-        """
-        处理 Label Studio 的标注任务，返回模型预测结果
-        """
-        print(f"\n📥 收到 {len(tasks)} 个预测任务")
-        predictions = []
-        
-        for idx, task in enumerate(tasks):
-            try:
-                # 1. 获取图片URL
-                image_url = task['data'].get('image')
-                if not image_url:
-                    raise ValueError("任务中未包含图片地址")
+    def predict(self, tasks, **kwargs):
+        """处理预测任务，返回Label Studio格式的结果"""
+        try:
+            # 1. 提取图片URL
+            image_url = task["data"]["image"]  # Label Studio默认图片字段为"image"
+            print(f"\n📥 收到预测任务，图片URL: {image_url}")
 
-                print(f"🖼️  [{idx+1}/{len(tasks)}] 处理图片: {image_url[:80]}...")
+            # 2. 处理图片URL（确保为完整HTTP地址）
+            if not image_url.startswith(('http://', 'https://')):
+                # 移除开头多余斜杠，避免拼接后出现//
+                image_url = image_url.lstrip('/')
+                # 拼接完整URL
+                image_url = f"{self.LABEL_STUDIO_BASE_URL}/{image_url}"
+                print(f"🔄 转换后图片URL: {image_url}")
 
-                # 2. 加载图片
-                # if image_url.startswith(('http://', 'https://')):
-                #    response = requests.get(image_url, timeout=15)
-                #   response.raise_for_status()
-                #   image = Image.open(io.BytesIO(response.content))
-                #else:
-                #    image = Image.open(image_url)
-                # 2. 加载图片：统一通过 HTTP 请求获取（处理本地路径和远程 URL）
-                # 处理非 HTTP 开头的本地路径，拼接为完整 URL
-                if not image_url.startswith(('http://', 'https://')):
-                    # 确保路径格式正确（去除多余的斜杠）
-                    if image_url.startswith('/'):
-                        image_url = f"{self.LABEL_STUDIO_BASE_URL}{image_url}"
-                    else:
-                        image_url = f"{self.LABEL_STUDIO_BASE_URL}/{image_url}"
+            # 3. 从环境变量获取Label Studio Token并构造认证头
+            ls_token = os.getenv("LABEL_STUDIO_TOKEN")
+            if not ls_token:
+                raise ValueError("环境变量 LABEL_STUDIO_TOKEN 未设置，请在云平台配置")
+            headers = {"Authorization": f"Token {ls_token}"}
 
-                # 发送 HTTP 请求获取图片
-                try:
-                    # 如果 Label Studio 需要认证，添加 headers（示例）
-                    # headers = {"Authorization": "Token 你的LabelStudioToken"}
-                    # response = requests.get(image_url, headers=headers, timeout=15)
-                    response = requests.get(image_url, timeout=15)  # 无认证时用这行
-                    response.raise_for_status()  # 检查请求是否成功（4xx/5xx 会抛异常）
-                    image = Image.open(io.BytesIO(response.content))
-                except requests.exceptions.RequestException as e:
-                    raise ValueError(f"获取图片失败: {str(e)}")
+            # 4. 下载图片（带认证）
+            print(f"🖼️ 正在下载图片...")
+            response = requests.get(image_url, headers=headers, timeout=15)
+            response.raise_for_status()  # 检查HTTP错误（4xx/5xx）
+            image = Image.open(io.BytesIO(response.content))
+            img_width, img_height = image.size
+            print(f"✅ 图片下载成功，尺寸: {img_width}x{img_height}")
 
-                img_width, img_height = image.size
-                print(f"   图片尺寸: {img_width}x{img_height}")
+            # 5. 用YOLO模型预测
+            print("🔍 正在进行模型预测...")
+            results = self.model.predict(
+                image,
+                conf=self.CONF_THRESHOLD,
+                classes=None  # 预测所有类别，如需过滤可指定列表（如[0,1]）
+            )
 
-                # 3. YOLOv8 推理
-                results = self.model.predict(
-                    image,
-                    conf=self.conf_threshold,
-                    verbose=False,
-                    device='cpu'  # 强制使用 CPU
-                )
+            # 6. 转换预测结果为Label Studio格式（矩形框）
+            predictions = []
+            for result in results:
+                for box in result.boxes:
+                    # YOLO输出格式：x1,y1,x2,y2（绝对坐标，左上角和右下角）
+                    x1, y1, x2, y2 = box.xyxy[0].tolist()
+                    # 类别ID和置信度
+                    cls_id = int(box.cls[0])
+                    confidence = float(box.conf[0])
+                    class_name = self.classes[cls_id]
 
-                # 4. 转换为 Label Studio 格式
-                label_studio_results = []
-                
-                if len(results) > 0 and hasattr(results[0], 'boxes'):
-                    for result in results[0].boxes:
-                        x1, y1, x2, y2 = result.xyxy[0].tolist()
-                        class_id = int(result.cls[0])
-                        confidence = float(result.conf[0])
+                    # 构造Label Studio矩形框格式
+                    predictions.append({
+                        "from_name": "label",  # 需与Label Studio标签配置中的name一致
+                        "to_name": "image",   # 需与Label Studio图片字段name一致
+                        "type": "rectanglelabels",
+                        "value": {
+                            "rectanglelabels": [class_name],
+                            "x": (x1 / img_width) * 100,  # 转换为相对宽度百分比
+                            "y": (y1 / img_height) * 100, # 转换为相对高度百分比
+                            "width": ((x2 - x1) / img_width) * 100,
+                            "height": ((y2 - y1) / img_height) * 100
+                        },
+                        "score": confidence  # 置信度分数
+                    })
 
-                        # 验证类别ID
-                        if 0 <= class_id < len(self.classes):
-                            label = self.classes[class_id]
-                        else:
-                            label = f"unknown_class_{class_id}"
-                            print(f"   ⚠️  未知类别ID: {class_id}")
+            print(f"📊 预测完成，生成 {len(predictions)} 个目标框")
+            return ModelResponse({"results": predictions})
 
-                        # 转换为百分比坐标
-                        label_studio_results.append({
-                            "type": "rectanglelabels",
-                            "value": {
-                                "x": (x1 / img_width) * 100,
-                                "y": (y1 / img_height) * 100,
-                                "width": ((x2 - x1) / img_width) * 100,
-                                "height": ((y2 - y1) / img_height) * 100,
-                                "rectanglelabels": [label]
-                            },
-                            "score": confidence,
-                            "from_name": "label",
-                            "to_name": "image"
-                        })
+        except Exception as e:
+            error_msg = f"处理失败: {str(e)}"
+            print(f"❌ {error_msg}")
+            return ModelResponse({"results": [], "error": error_msg})
 
-                print(f"   ✅ 检测到 {len(label_studio_results)} 个目标")
 
-                # 5. 返回预测结果
-                avg_score = sum(r['score'] for r in label_studio_results) / len(label_studio_results) if label_studio_results else 0.0
-                predictions.append({
-                    "result": label_studio_results,
-                    "score": avg_score
-                })
-
-            except Exception as e:
-                print(f"   ❌ 处理失败: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                predictions.append({
-                    "result": [],
-                    "score": 0.0
-                })
-
-        print(f"📤 返回 {len(predictions)} 个预测结果\n")
-        return predictions
-
-print("✅ model.py 加载完成")
+if __name__ == "__main__":
+    # 本地测试用（运行脚本时启动服务）
+    from label_studio_ml.server import run_server
+    run_server(YOLOv8LabelStudioAdapter, port=8000)
