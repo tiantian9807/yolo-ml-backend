@@ -22,7 +22,7 @@ class YOLOv8LabelStudioAdapter(LabelStudioMLBase):
 
         try:
             # 加载YOLO模型
-            self.model = YOLO(self.MODEL_PATH, task='detect')
+            self.model = YOLO(self.MODEL_PATH, task='detect', weights_only=False)
             # 获取模型类别信息
             self.classes = self.model.names
             self.class_names = list(self.classes.values())
@@ -112,4 +112,5 @@ if __name__ == "__main__":
     # 本地测试用（运行脚本时启动服务）
     from label_studio_ml.server import run_server
     run_server(YOLOv8LabelStudioAdapter, port=8000)
+
 
