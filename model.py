@@ -1,5 +1,15 @@
+import os
 import torch
-torch.serialization.add_safe_globals(['ultralytics.nn.tasks.DetectionModel'])
+
+# 方案1：完全禁用 weights_only 检查（最简单）
+os.environ['TORCH_FORCE_WEIGHTS_ONLY_LOAD'] = '0'
+
+# 方案2：添加安全类（作为备份）
+try:
+    from ultralytics.nn.tasks import DetectionModel
+    torch.serialization.add_safe_globals([DetectionModel])
+except Exception as e:
+    print(f"⚠️ 添加安全类失败: {e}")
 
 from label_studio_ml.model import LabelStudioMLBase
 from ultralytics import YOLO
@@ -16,7 +26,7 @@ class YOLOv8LabelStudioAdapter(LabelStudioMLBase):
         print("🔧 开始加载 YOLOv8 模型...")
         
         try:
-            # 加载 YOLOv8 模型（移除 weights_only 参数）
+            # 加载 YOLOv8 模型时禁用 weights_only 检查
             self.model = YOLO('best.pt')
             
             # 获取模型类别
@@ -30,6 +40,8 @@ class YOLOv8LabelStudioAdapter(LabelStudioMLBase):
             
         except Exception as e:
             print(f"❌ 模型加载失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
             raise
 
     def predict(self, tasks: List[Dict], **kwargs) -> List[Dict]:
