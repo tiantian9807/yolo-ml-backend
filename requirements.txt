@@ -1,8 +1,5 @@
 label-studio-ml==1.0.9
 ultralytics==8.0.200
 gunicorn==20.1.0
-rq==1.15.1
-redis==4.5.4
-torch==2.0.1
-torchvision==0.15.2
-opencv-python-headless==4.8.0.74
+rq
+redis
