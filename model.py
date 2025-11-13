@@ -45,6 +45,8 @@ class YOLOv8LabelStudioAdapter(LabelStudioMLBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         print("\n🔧 开始加载 YOLOv8 模型...")
+         # 添加 Label Studio 基础地址（关键！根据实际部署地址修改）
+        self.LABEL_STUDIO_BASE_URL = "https://label-studio-latest-96wd.onrender.com/"  # 例如：云平台分配的域名/IP+端口
         
         try:
             # 强制加载模型
@@ -87,12 +89,31 @@ class YOLOv8LabelStudioAdapter(LabelStudioMLBase):
                 print(f"🖼️  [{idx+1}/{len(tasks)}] 处理图片: {image_url[:80]}...")
 
                 # 2. 加载图片
-                if image_url.startswith(('http://', 'https://')):
-                    response = requests.get(image_url, timeout=15)
-                    response.raise_for_status()
+                # if image_url.startswith(('http://', 'https://')):
+                #    response = requests.get(image_url, timeout=15)
+                #   response.raise_for_status()
+                #   image = Image.open(io.BytesIO(response.content))
+                #else:
+                #    image = Image.open(image_url)
+                # 2. 加载图片：统一通过 HTTP 请求获取（处理本地路径和远程 URL）
+                # 处理非 HTTP 开头的本地路径，拼接为完整 URL
+                if not image_url.startswith(('http://', 'https://')):
+                    # 确保路径格式正确（去除多余的斜杠）
+                    if image_url.startswith('/'):
+                        image_url = f"{self.LABEL_STUDIO_BASE_URL}{image_url}"
+                    else:
+                        image_url = f"{self.LABEL_STUDIO_BASE_URL}/{image_url}"
+
+                # 发送 HTTP 请求获取图片
+                try:
+                    # 如果 Label Studio 需要认证，添加 headers（示例）
+                    # headers = {"Authorization": "Token 你的LabelStudioToken"}
+                    # response = requests.get(image_url, headers=headers, timeout=15)
+                    response = requests.get(image_url, timeout=15)  # 无认证时用这行
+                    response.raise_for_status()  # 检查请求是否成功（4xx/5xx 会抛异常）
                     image = Image.open(io.BytesIO(response.content))
-                else:
-                    image = Image.open(image_url)
+                except requests.exceptions.RequestException as e:
+                    raise ValueError(f"获取图片失败: {str(e)}")
 
                 img_width, img_height = image.size
                 print(f"   图片尺寸: {img_width}x{img_height}")
