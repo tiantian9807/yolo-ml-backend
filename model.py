@@ -3,7 +3,6 @@ import io
 import requests
 from PIL import Image
 from label_studio_ml.model import LabelStudioMLBase
-from label_studio_ml.response import ModelResponse
 from ultralytics import YOLO
 
 
@@ -101,15 +100,16 @@ class YOLOv8LabelStudioAdapter(LabelStudioMLBase):
                     })
 
             print(f"📊 预测完成，生成 {len(predictions)} 个目标框")
-            return ModelResponse({"results": predictions})
+            return {"results": predictions}
 
         except Exception as e:
             error_msg = f"处理失败: {str(e)}"
             print(f"❌ {error_msg}")
-            return ModelResponse({"results": [], "error": error_msg})
+            return {"results": [], "error": error_msg}
 
 
 if __name__ == "__main__":
     # 本地测试用（运行脚本时启动服务）
     from label_studio_ml.server import run_server
     run_server(YOLOv8LabelStudioAdapter, port=8000)
+
