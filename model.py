@@ -26,7 +26,7 @@ class YOLOv8LabelStudioAdapter(LabelStudioMLBase):
             self.model = YOLO(self.MODEL_PATH, task='detect')
             # 获取模型类别信息
             self.classes = self.model.names
-            self.class_names = ['qiwu', 'xuhao', 'tuzhu', 'muzang', 'zhengti']
+            self.class_names = list(self.classes.values())
             print(f"✅ 模型加载成功！")
             print(f"   📋 模型类别数: {len(self.classes)}")
             print(f"   📋 模型类别: {self.classes}")
