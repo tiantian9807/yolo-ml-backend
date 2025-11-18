@@ -126,3 +126,4 @@ class YOLOv8LabelStudioAdapter(LabelStudioMLBase):
                 })
 
         return predictions
+
