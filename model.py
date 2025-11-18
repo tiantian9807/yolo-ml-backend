@@ -16,10 +16,10 @@ from ultralytics import YOLO
 import requests
 from PIL import Image
 import io
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 class YOLOv8LabelStudioAdapter(LabelStudioMLBase):
-    """YOLOv8模型与Label Studio的对接适配器 - 公共版本"""
+    """YOLOv8模型与Label Studio的对接适配器"""
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -44,6 +44,28 @@ class YOLOv8LabelStudioAdapter(LabelStudioMLBase):
             traceback.print_exc()
             raise
 
+    def setup(self):
+        """
+        Label Studio 调用此方法来验证模型配置
+        返回模型的标签配置
+        """
+        print("📡 收到 setup 请求")
+        
+        # 返回模型支持的标签
+        self.parsed_label_config = {
+            "label": {
+                "type": "rectanglelabels",
+                "to_name": ["image"],
+                "inputs": [
+                    {"type": "image", "value": "image"}
+                ],
+                "labels": list(self.classes.values())  # 返回所有检测类别
+            }
+        }
+        
+        print(f"✅ Setup 完成，支持的标签: {list(self.classes.values())}")
+        return self.parsed_label_config
+
     def predict(self, tasks: List[Dict], **kwargs) -> List[Dict]:
         """
         处理Label Studio的标注任务，返回模型预测结果
@@ -63,7 +85,7 @@ class YOLOv8LabelStudioAdapter(LabelStudioMLBase):
                 
                 # 2. 加载图片（支持网络图片和本地图片）
                 if image_url.startswith(('http://', 'https://')):
-                    # 网络图片：直接下载（不需要认证，因为Label Studio会提供可访问的URL）
+                    # 网络图片：直接下载
                     print("⬇️  下载网络图片...")
                     response = requests.get(image_url, timeout=30)
                     response.raise_for_status()
@@ -81,7 +103,7 @@ class YOLOv8LabelStudioAdapter(LabelStudioMLBase):
                 results = self.model.predict(
                     image,
                     conf=self.conf_threshold,
-                    verbose=False  # 减少输出
+                    verbose=False
                 )
 
                 # 4. 转换为 Label Studio 格式
@@ -95,7 +117,7 @@ class YOLOv8LabelStudioAdapter(LabelStudioMLBase):
                     class_name = self.classes.get(class_id, f"class_{class_id}")
                     
                     label_studio_results.append({
-                        "from_name": "label",  # 对应标注配置中的 name
+                        "from_name": "label",
                         "to_name": "image",
                         "type": "rectanglelabels",
                         "value": {
@@ -127,3 +149,10 @@ class YOLOv8LabelStudioAdapter(LabelStudioMLBase):
 
         return predictions
 
+    def fit(self, completions, workdir=None, **kwargs):
+        """
+        训练方法（可选）
+        如果不需要在线训练，返回空字典即可
+        """
+        print("📚 收到训练请求（当前版本不支持在线训练）")
+        return {}
